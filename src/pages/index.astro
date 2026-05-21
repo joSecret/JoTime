@@ -28,6 +28,11 @@ import AppScreen from '../components/AppScreen.astro';
       last_start_time: number | null;
     }
 
+    interface Tag {
+      id: string;
+      name: string;
+    }
+
     // ── Screen switching ───────────────────────────────────────────────────────
 
     const loginScreen = document.getElementById('login-screen') as HTMLDivElement;
@@ -75,9 +80,12 @@ import AppScreen from '../components/AppScreen.astro';
     supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
         showApp();
+        loadTags();
         loadTasks();
       } else {
         tasks = [];
+        tags = [];
+        selectedTagId = null;
         render();
         showLogin();
       }
@@ -86,7 +94,20 @@ import AppScreen from '../components/AppScreen.astro';
     // ── State ──────────────────────────────────────────────────────────────────
 
     let tasks: Task[] = [];
+    let tags: Tag[] = [];
+    let selectedTagId: string | null = null;
     let activeTag: string | null = null;
+
+    async function loadTags(): Promise<void> {
+      const { data } = await supabase.from('tags').select('id, name').order('name');
+      if (data) { tags = data as Tag[]; renderTagDropdown(); }
+    }
+
+    async function createTag(name: string): Promise<Tag | null> {
+      const { data, error } = await supabase.from('tags').insert({ name }).select('id, name').single();
+      if (!error && data) { tags = [...tags, data as Tag].sort((a, b) => a.name.localeCompare(b.name)); return data as Tag; }
+      return null;
+    }
 
     async function loadTasks(): Promise<void> {
       const { data, error } = await supabase
@@ -159,9 +180,10 @@ import AppScreen from '../components/AppScreen.astro';
       render();
     }
 
-    async function addTask(name: string, tag: string | null = null): Promise<void> {
+    async function addTask(name: string): Promise<void> {
       const trimmed = name.trim();
       if (!trimmed) return;
+      const tag = tags.find(t => t.id === selectedTagId)?.name ?? null;
       const { data, error } = await supabase
         .from('tasks')
         .insert({ name: trimmed, tag, total_time: 0, is_running: false, last_start_time: null })
@@ -185,6 +207,78 @@ import AppScreen from '../components/AppScreen.astro';
       tasks = [];
       render();
     }
+
+    // ── Tag dropdown ───────────────────────────────────────────────────────────
+
+    const tagSelectTrigger = document.getElementById('tag-select-trigger') as HTMLButtonElement;
+    const tagSelectMenu    = document.getElementById('tag-select-menu')    as HTMLDivElement;
+    const tagSelectLabel   = document.getElementById('tag-select-label')   as HTMLSpanElement;
+    const tagSelectOptions = document.getElementById('tag-select-options') as HTMLDivElement;
+    const tagAddBtn        = document.getElementById('tag-add-btn')        as HTMLButtonElement;
+
+    function renderTagDropdown(): void {
+      tagSelectOptions.innerHTML = '';
+      const noneBtn = document.createElement('button');
+      noneBtn.className = `tag-option tag-option-none${selectedTagId === null ? ' selected' : ''}`;
+      noneBtn.textContent = 'No tag';
+      noneBtn.addEventListener('click', () => { selectedTagId = null; updateTriggerLabel(); closeTagMenu(); });
+      tagSelectOptions.appendChild(noneBtn);
+
+      tags.forEach(tag => {
+        const btn = document.createElement('button');
+        btn.className = `tag-option${selectedTagId === tag.id ? ' selected' : ''}`;
+        btn.textContent = tag.name;
+        btn.addEventListener('click', () => { selectedTagId = tag.id; updateTriggerLabel(); closeTagMenu(); });
+        tagSelectOptions.appendChild(btn);
+      });
+    }
+
+    function updateTriggerLabel(): void {
+      const tag = tags.find(t => t.id === selectedTagId);
+      tagSelectLabel.textContent = tag ? tag.name : 'No tag';
+      tagSelectTrigger.classList.toggle('has-value', !!tag);
+    }
+
+    function openTagMenu(): void { tagSelectMenu.classList.remove('hidden'); renderTagDropdown(); }
+    function closeTagMenu(): void { tagSelectMenu.classList.add('hidden'); }
+
+    tagSelectTrigger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      tagSelectMenu.classList.contains('hidden') ? openTagMenu() : closeTagMenu();
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!document.getElementById('tag-select')!.contains(e.target as Node)) closeTagMenu();
+    });
+
+    // ── Tag modal ──────────────────────────────────────────────────────────────
+
+    const tagModal       = document.getElementById('tag-modal')        as HTMLDivElement;
+    const tagModalInput  = document.getElementById('tag-modal-input')  as HTMLInputElement;
+    const tagModalSave   = document.getElementById('tag-modal-save')   as HTMLButtonElement;
+    const tagModalCancel = document.getElementById('tag-modal-cancel') as HTMLButtonElement;
+
+    function openTagModal(): void { closeTagMenu(); tagModal.classList.remove('hidden'); tagModalInput.value = ''; tagModalInput.focus(); }
+    function closeTagModal(): void { tagModal.classList.add('hidden'); }
+
+    tagAddBtn.addEventListener('click', openTagModal);
+    tagModalCancel.addEventListener('click', closeTagModal);
+    tagModal.addEventListener('click', (e) => { if (e.target === tagModal) closeTagModal(); });
+
+    tagModalSave.addEventListener('click', async () => {
+      const name = tagModalInput.value.trim();
+      if (!name) return;
+      tagModalSave.disabled = true;
+      const tag = await createTag(name);
+      tagModalSave.disabled = false;
+      if (tag) { selectedTagId = tag.id; updateTriggerLabel(); renderTagDropdown(); }
+      closeTagModal();
+    });
+
+    tagModalInput.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key === 'Enter') tagModalSave.click();
+      if (e.key === 'Escape') closeTagModal();
+    });
 
     // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -315,23 +409,17 @@ import AppScreen from '../components/AppScreen.astro';
     // ── App event listeners ────────────────────────────────────────────────────
 
     const taskInput = document.getElementById('task-input') as HTMLInputElement;
-    const tagInput  = document.getElementById('tag-input')  as HTMLInputElement;
     const addBtn    = document.getElementById('add-btn')    as HTMLButtonElement;
 
     function submitAdd(): void {
-      addTask(taskInput.value, tagInput.value.trim() || null);
+      addTask(taskInput.value);
       taskInput.value = '';
-      tagInput.value = '';
       taskInput.focus();
     }
 
     addBtn.addEventListener('click', submitAdd);
 
     taskInput.addEventListener('keydown', (e: KeyboardEvent) => {
-      if (e.key === 'Enter') submitAdd();
-    });
-
-    tagInput.addEventListener('keydown', (e: KeyboardEvent) => {
       if (e.key === 'Enter') submitAdd();
     });
 
