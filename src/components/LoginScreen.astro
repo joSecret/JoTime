@@ -56,7 +56,7 @@ import Logo from './Logo.astro';
     if (session?.user) {
       document.dispatchEvent(
         new CustomEvent('jotime:signin', {
-          detail: { userId: session.user.id },
+          detail: { userId: session.user.id, email: session.user.email },
         }),
       );
     } else {

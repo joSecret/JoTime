@@ -7,7 +7,10 @@ import Logo from './Logo.astro';
     <header class='header'>
       <div class='header-row'>
         <Logo />
-        <button id='logout-btn' class='btn btn-ghost btn-sm'>Logout</button>
+        <div class='header-user'>
+          <span id='user-email' class='user-email'></span>
+          <button id='logout-btn' class='btn btn-ghost btn-sm'>Logout</button>
+        </div>
       </div>
       <p class='tagline'>track what matters</p>
     </header>
@@ -114,9 +117,12 @@ import Logo from './Logo.astro';
 
   // ── Auth events ─────────────────────────────────────────────────────────────
 
+  const userEmailEl = document.getElementById('user-email') as HTMLSpanElement;
+
   document.addEventListener('jotime:signin', (e) => {
-    const { userId } = (e as CustomEvent<{ userId: string }>).detail;
+    const { userId, email } = (e as CustomEvent<{ userId: string; email?: string }>).detail;
     currentUserId = userId;
+    userEmailEl.textContent = email ?? '';
     showApp();
     loadTags();
     loadTasks();
@@ -124,6 +130,7 @@ import Logo from './Logo.astro';
 
   document.addEventListener('jotime:signout', () => {
     currentUserId = null;
+    userEmailEl.textContent = '';
     tasks = [];
     tags = [];
     selectedTagId = null;
