@@ -3,6 +3,7 @@ import Layout from '../layouts/Layout.astro';
 import LoginScreen from '../components/LoginScreen.astro';
 import AppScreen from '../components/AppScreen.astro';
 ---
+
 <Layout>
   <LoginScreen />
   <AppScreen />
@@ -14,7 +15,7 @@ import AppScreen from '../components/AppScreen.astro';
 
     const supabase = createClient(
       import.meta.env.PUBLIC_SUPABASE_URL as string,
-      import.meta.env.PUBLIC_SUPABASE_ANON_KEY as string
+      import.meta.env.PUBLIC_SUPABASE_ANON_KEY as string,
     );
 
     // ── Types ──────────────────────────────────────────────────────────────────
@@ -26,6 +27,8 @@ import AppScreen from '../components/AppScreen.astro';
       total_time: number;
       is_running: boolean;
       last_start_time: number | null;
+      created_at: string;
+      completed_at: string | null;
     }
 
     interface Tag {
@@ -33,10 +36,21 @@ import AppScreen from '../components/AppScreen.astro';
       name: string;
     }
 
+    interface TimeEntry {
+      id: string;
+      task_id: string;
+      started_at: string;
+      ended_at: string;
+      duration_ms: number;
+      tasks: { name: string; tag: string | null } | null;
+    }
+
     // ── Screen switching ───────────────────────────────────────────────────────
 
-    const loginScreen = document.getElementById('login-screen') as HTMLDivElement;
-    const appScreen   = document.getElementById('app-screen')   as HTMLDivElement;
+    const loginScreen = document.getElementById(
+      'login-screen',
+    ) as HTMLDivElement;
+    const appScreen = document.getElementById('app-screen') as HTMLDivElement;
 
     function showLogin(): void {
       loginScreen.classList.remove('hidden');
@@ -50,9 +64,13 @@ import AppScreen from '../components/AppScreen.astro';
 
     // ── Auth ───────────────────────────────────────────────────────────────────
 
-    const emailInput  = document.getElementById('email-input')  as HTMLInputElement;
-    const sendLinkBtn = document.getElementById('send-link-btn') as HTMLButtonElement;
-    const authMsg     = document.getElementById('auth-msg')      as HTMLParagraphElement;
+    const emailInput = document.getElementById(
+      'email-input',
+    ) as HTMLInputElement;
+    const sendLinkBtn = document.getElementById(
+      'send-link-btn',
+    ) as HTMLButtonElement;
+    const authMsg = document.getElementById('auth-msg') as HTMLParagraphElement;
 
     sendLinkBtn.addEventListener('click', async () => {
       const email = emailInput.value.trim();
@@ -61,11 +79,15 @@ import AppScreen from '../components/AppScreen.astro';
       sendLinkBtn.textContent = 'Sending…';
       const { error } = await supabase.auth.signInWithOtp({
         email,
-        options: { emailRedirectTo: window.location.origin + window.location.pathname },
+        options: {
+          emailRedirectTo: window.location.origin + window.location.pathname,
+        },
       });
       sendLinkBtn.disabled = false;
       sendLinkBtn.textContent = 'Send magic link';
-      authMsg.textContent = error ? error.message : 'Check your email for the magic link!';
+      authMsg.textContent = error
+        ? error.message
+        : 'Check your email for the magic link!';
       authMsg.style.color = error ? 'var(--danger)' : 'var(--accent-active)';
     });
 
@@ -73,16 +95,20 @@ import AppScreen from '../components/AppScreen.astro';
       if (e.key === 'Enter') sendLinkBtn.click();
     });
 
-    document.getElementById('logout-btn')!.addEventListener('click', async () => {
-      await supabase.auth.signOut();
-    });
+    document
+      .getElementById('logout-btn')!
+      .addEventListener('click', async () => {
+        await supabase.auth.signOut();
+      });
 
     supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
+        currentUserId = session.user.id;
         showApp();
         loadTags();
         loadTasks();
       } else {
+        currentUserId = null;
         tasks = [];
         tags = [];
         selectedTagId = null;
@@ -95,43 +121,68 @@ import AppScreen from '../components/AppScreen.astro';
 
     let tasks: Task[] = [];
     let tags: Tag[] = [];
+    let entries: TimeEntry[] = [];
+    let completedTasks: Task[] = [];
     let selectedTagId: string | null = null;
     let activeTag: string | null = null;
+    let activeView: 'tasks' | 'history' = 'tasks';
+    let currentUserId: string | null = null;
 
     async function loadTags(): Promise<void> {
-      const { data } = await supabase.from('tags').select('id, name').order('name');
-      if (data) { tags = data as Tag[]; renderTagDropdown(); }
+      const { data } = await supabase
+        .from('tags')
+        .select('id, name')
+        .order('name');
+      if (data) {
+        tags = data as Tag[];
+        renderTagDropdown();
+      }
     }
 
     async function createTag(name: string): Promise<Tag | null> {
-      const { data, error } = await supabase.from('tags').insert({ name }).select('id, name').single();
-      if (!error && data) { tags = [...tags, data as Tag].sort((a, b) => a.name.localeCompare(b.name)); return data as Tag; }
+      const { data, error } = await supabase
+        .from('tags')
+        .insert({ name, user_id: currentUserId })
+        .select('id, name')
+        .single();
+      if (!error && data) {
+        tags = [...tags, data as Tag].sort((a, b) =>
+          a.name.localeCompare(b.name),
+        );
+        return data as Tag;
+      }
       return null;
+    }
+
+    async function loadHistory(): Promise<void> {
+      const [entriesRes, completedRes] = await Promise.all([
+        supabase.from('time_entries').select('id, task_id, started_at, ended_at, duration_ms, tasks(name, tag)').order('started_at', { ascending: false }).limit(300),
+        supabase.from('tasks').select('*').not('completed_at', 'is', null).order('completed_at', { ascending: false }).limit(200),
+      ]);
+      if (entriesRes.data) entries = entriesRes.data as unknown as TimeEntry[];
+      if (completedRes.data) completedTasks = completedRes.data as Task[];
+      renderHistory();
+    }
+
+    async function recordEntry(taskId: string, startedAt: number, endedAt: number): Promise<void> {
+      await supabase.from('time_entries').insert({
+        task_id: taskId,
+        user_id: currentUserId,
+        started_at: new Date(startedAt).toISOString(),
+        ended_at: new Date(endedAt).toISOString(),
+        duration_ms: endedAt - startedAt,
+      });
     }
 
     async function loadTasks(): Promise<void> {
       const { data, error } = await supabase
         .from('tasks')
         .select('*')
+        .is('completed_at', null)
         .order('created_at', { ascending: true });
 
       if (error || !data) return;
-
-      const now = Date.now();
-      const updates: Promise<unknown>[] = [];
-
-      tasks = data.map((t: Task) => {
-        if (t.is_running && t.last_start_time) {
-          const recovered = { ...t, total_time: t.total_time + (now - t.last_start_time), is_running: false, last_start_time: null };
-          updates.push(
-            Promise.resolve(supabase.from('tasks').update({ total_time: recovered.total_time, is_running: false, last_start_time: null }).eq('id', t.id))
-          );
-          return recovered;
-        }
-        return t;
-      });
-
-      await Promise.all(updates);
+      tasks = data as Task[];
       render();
     }
 
@@ -149,22 +200,35 @@ import AppScreen from '../components/AppScreen.astro';
       const h = Math.floor(totalSec / 3600);
       const m = Math.floor((totalSec % 3600) / 60);
       const s = totalSec % 60;
-      return [h, m, s].map(n => String(n).padStart(2, '0')).join(':');
+      return [h, m, s].map((n) => String(n).padStart(2, '0')).join(':');
     }
 
     async function startTask(id: string): Promise<void> {
       const now = Date.now();
-      const running = tasks.find(t => t.is_running && t.id !== id);
+      const running = tasks.find((t) => t.is_running && t.id !== id);
 
-      if (running) {
-        const newTotal = running.total_time + (now - (running.last_start_time ?? now));
-        await supabase.from('tasks').update({ total_time: newTotal, is_running: false, last_start_time: null }).eq('id', running.id);
+      if (running && running.last_start_time) {
+        const newTotal = running.total_time + (now - running.last_start_time);
+        await Promise.all([
+          supabase.from('tasks').update({ total_time: newTotal, is_running: false, last_start_time: null }).eq('id', running.id),
+          recordEntry(running.id, running.last_start_time, now),
+        ]);
       }
-      await supabase.from('tasks').update({ is_running: true, last_start_time: now }).eq('id', id);
+      await supabase
+        .from('tasks')
+        .update({ is_running: true, last_start_time: now })
+        .eq('id', id);
 
-      tasks = tasks.map(t => {
-        if (t.is_running && t.id !== id) return { ...t, total_time: t.total_time + (now - (t.last_start_time ?? now)), is_running: false, last_start_time: null };
-        if (t.id === id) return { ...t, is_running: true, last_start_time: now };
+      tasks = tasks.map((t) => {
+        if (t.is_running && t.id !== id)
+          return {
+            ...t,
+            total_time: t.total_time + (now - (t.last_start_time ?? now)),
+            is_running: false,
+            last_start_time: null,
+          };
+        if (t.id === id)
+          return { ...t, is_running: true, last_start_time: now };
         return t;
       });
       render();
@@ -172,21 +236,31 @@ import AppScreen from '../components/AppScreen.astro';
 
     async function pauseTask(id: string): Promise<void> {
       const now = Date.now();
-      const task = tasks.find(t => t.id === id);
-      if (!task?.is_running) return;
-      const newTotal = task.total_time + (now - (task.last_start_time ?? now));
-      await supabase.from('tasks').update({ total_time: newTotal, is_running: false, last_start_time: null }).eq('id', id);
-      tasks = tasks.map(t => t.id === id ? { ...t, total_time: newTotal, is_running: false, last_start_time: null } : t);
+      const task = tasks.find((t) => t.id === id);
+      if (!task?.is_running || !task.last_start_time) return;
+      const newTotal = task.total_time + (now - task.last_start_time);
+      await Promise.all([
+        supabase.from('tasks').update({ total_time: newTotal, is_running: false, last_start_time: null }).eq('id', id),
+        recordEntry(id, task.last_start_time, now),
+      ]);
+      tasks = tasks.map((t) => t.id === id ? { ...t, total_time: newTotal, is_running: false, last_start_time: null } : t);
+      if (activeView === 'history') loadHistory();
       render();
     }
 
     async function addTask(name: string): Promise<void> {
       const trimmed = name.trim();
       if (!trimmed) return;
-      const tag = tags.find(t => t.id === selectedTagId)?.name ?? null;
+      const tag = tags.find((t) => t.id === selectedTagId)?.name ?? null;
       const { data, error } = await supabase
         .from('tasks')
-        .insert({ name: trimmed, tag, total_time: 0, is_running: false, last_start_time: null })
+        .insert({
+          name: trimmed,
+          tag,
+          total_time: 0,
+          is_running: false,
+          last_start_time: null,
+        })
         .select()
         .single();
       if (!error && data) {
@@ -197,73 +271,138 @@ import AppScreen from '../components/AppScreen.astro';
 
     async function deleteTask(id: string): Promise<void> {
       await supabase.from('tasks').delete().eq('id', id);
-      tasks = tasks.filter(t => t.id !== id);
+      tasks = tasks.filter((t) => t.id !== id);
+      render();
+    }
+
+    async function completeTask(id: string): Promise<void> {
+      const now = Date.now();
+      const task = tasks.find((t) => t.id === id);
+      if (!task) return;
+      const completedAt = new Date(now).toISOString();
+      if (task.is_running && task.last_start_time) {
+        const newTotal = task.total_time + (now - task.last_start_time);
+        await Promise.all([
+          supabase.from('tasks').update({ total_time: newTotal, is_running: false, last_start_time: null, completed_at: completedAt }).eq('id', id),
+          recordEntry(id, task.last_start_time, now),
+        ]);
+      } else {
+        await supabase.from('tasks').update({ completed_at: completedAt }).eq('id', id);
+      }
+      tasks = tasks.filter((t) => t.id !== id);
       render();
     }
 
     async function clearAll(): Promise<void> {
       if (!tasks.length) return;
-      await supabase.from('tasks').delete().in('id', tasks.map(t => t.id));
+      await supabase
+        .from('tasks')
+        .delete()
+        .in(
+          'id',
+          tasks.map((t) => t.id),
+        );
       tasks = [];
       render();
     }
 
     // ── Tag dropdown ───────────────────────────────────────────────────────────
 
-    const tagSelectTrigger = document.getElementById('tag-select-trigger') as HTMLButtonElement;
-    const tagSelectMenu    = document.getElementById('tag-select-menu')    as HTMLDivElement;
-    const tagSelectLabel   = document.getElementById('tag-select-label')   as HTMLSpanElement;
-    const tagSelectOptions = document.getElementById('tag-select-options') as HTMLDivElement;
-    const tagAddBtn        = document.getElementById('tag-add-btn')        as HTMLButtonElement;
+    const tagSelectTrigger = document.getElementById(
+      'tag-select-trigger',
+    ) as HTMLButtonElement;
+    const tagSelectMenu = document.getElementById(
+      'tag-select-menu',
+    ) as HTMLDivElement;
+    const tagSelectLabel = document.getElementById(
+      'tag-select-label',
+    ) as HTMLSpanElement;
+    const tagSelectOptions = document.getElementById(
+      'tag-select-options',
+    ) as HTMLDivElement;
+    const tagAddBtn = document.getElementById(
+      'tag-add-btn',
+    ) as HTMLButtonElement;
 
     function renderTagDropdown(): void {
       tagSelectOptions.innerHTML = '';
       const noneBtn = document.createElement('button');
       noneBtn.className = `tag-option tag-option-none${selectedTagId === null ? ' selected' : ''}`;
       noneBtn.textContent = 'No tag';
-      noneBtn.addEventListener('click', () => { selectedTagId = null; updateTriggerLabel(); closeTagMenu(); });
+      noneBtn.addEventListener('click', () => {
+        selectedTagId = null;
+        updateTriggerLabel();
+        closeTagMenu();
+      });
       tagSelectOptions.appendChild(noneBtn);
 
-      tags.forEach(tag => {
+      tags.forEach((tag) => {
         const btn = document.createElement('button');
         btn.className = `tag-option${selectedTagId === tag.id ? ' selected' : ''}`;
         btn.textContent = tag.name;
-        btn.addEventListener('click', () => { selectedTagId = tag.id; updateTriggerLabel(); closeTagMenu(); });
+        btn.addEventListener('click', () => {
+          selectedTagId = tag.id;
+          updateTriggerLabel();
+          closeTagMenu();
+        });
         tagSelectOptions.appendChild(btn);
       });
     }
 
     function updateTriggerLabel(): void {
-      const tag = tags.find(t => t.id === selectedTagId);
+      const tag = tags.find((t) => t.id === selectedTagId);
       tagSelectLabel.textContent = tag ? tag.name : 'No tag';
       tagSelectTrigger.classList.toggle('has-value', !!tag);
     }
 
-    function openTagMenu(): void { tagSelectMenu.classList.remove('hidden'); renderTagDropdown(); }
-    function closeTagMenu(): void { tagSelectMenu.classList.add('hidden'); }
+    function openTagMenu(): void {
+      tagSelectMenu.classList.remove('hidden');
+      renderTagDropdown();
+    }
+    function closeTagMenu(): void {
+      tagSelectMenu.classList.add('hidden');
+    }
 
     tagSelectTrigger.addEventListener('click', (e) => {
       e.stopPropagation();
-      tagSelectMenu.classList.contains('hidden') ? openTagMenu() : closeTagMenu();
+      tagSelectMenu.classList.contains('hidden')
+        ? openTagMenu()
+        : closeTagMenu();
     });
 
     document.addEventListener('click', (e) => {
-      if (!document.getElementById('tag-select')!.contains(e.target as Node)) closeTagMenu();
+      if (!document.getElementById('tag-select')!.contains(e.target as Node))
+        closeTagMenu();
     });
 
     // ── Tag modal ──────────────────────────────────────────────────────────────
 
-    const tagModal       = document.getElementById('tag-modal')        as HTMLDivElement;
-    const tagModalInput  = document.getElementById('tag-modal-input')  as HTMLInputElement;
-    const tagModalSave   = document.getElementById('tag-modal-save')   as HTMLButtonElement;
-    const tagModalCancel = document.getElementById('tag-modal-cancel') as HTMLButtonElement;
+    const tagModal = document.getElementById('tag-modal') as HTMLDivElement;
+    const tagModalInput = document.getElementById(
+      'tag-modal-input',
+    ) as HTMLInputElement;
+    const tagModalSave = document.getElementById(
+      'tag-modal-save',
+    ) as HTMLButtonElement;
+    const tagModalCancel = document.getElementById(
+      'tag-modal-cancel',
+    ) as HTMLButtonElement;
 
-    function openTagModal(): void { closeTagMenu(); tagModal.classList.remove('hidden'); tagModalInput.value = ''; tagModalInput.focus(); }
-    function closeTagModal(): void { tagModal.classList.add('hidden'); }
+    function openTagModal(): void {
+      closeTagMenu();
+      tagModal.classList.remove('hidden');
+      tagModalInput.value = '';
+      tagModalInput.focus();
+    }
+    function closeTagModal(): void {
+      tagModal.classList.add('hidden');
+    }
 
     tagAddBtn.addEventListener('click', openTagModal);
     tagModalCancel.addEventListener('click', closeTagModal);
-    tagModal.addEventListener('click', (e) => { if (e.target === tagModal) closeTagModal(); });
+    tagModal.addEventListener('click', (e) => {
+      if (e.target === tagModal) closeTagModal();
+    });
 
     tagModalSave.addEventListener('click', async () => {
       const name = tagModalInput.value.trim();
@@ -271,7 +410,11 @@ import AppScreen from '../components/AppScreen.astro';
       tagModalSave.disabled = true;
       const tag = await createTag(name);
       tagModalSave.disabled = false;
-      if (tag) { selectedTagId = tag.id; updateTriggerLabel(); renderTagDropdown(); }
+      if (tag) {
+        selectedTagId = tag.id;
+        updateTriggerLabel();
+        renderTagDropdown();
+      }
       closeTagModal();
     });
 
@@ -280,14 +423,182 @@ import AppScreen from '../components/AppScreen.astro';
       if (e.key === 'Escape') closeTagModal();
     });
 
+    // ── View toggle ────────────────────────────────────────────────────────────
+
+    const tasksView   = document.getElementById('tasks-view')   as HTMLDivElement;
+    const historyView = document.getElementById('history-view') as HTMLDivElement;
+    const btnTasks    = document.getElementById('view-tasks')   as HTMLButtonElement;
+    const btnHistory  = document.getElementById('view-history') as HTMLButtonElement;
+
+    function switchView(view: 'tasks' | 'history'): void {
+      activeView = view;
+      tasksView.classList.toggle('hidden', view === 'history');
+      historyView.classList.toggle('hidden', view === 'tasks');
+      btnTasks.classList.toggle('active', view === 'tasks');
+      btnHistory.classList.toggle('active', view === 'history');
+      if (view === 'history') loadHistory();
+    }
+
+    btnTasks.addEventListener('click', () => switchView('tasks'));
+    btnHistory.addEventListener('click', () => switchView('history'));
+
+    // ── History render ─────────────────────────────────────────────────────────
+
+    function formatDayLabel(date: Date): string {
+      const today = new Date();
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1);
+      if (date.toDateString() === today.toDateString()) return 'Today';
+      if (date.toDateString() === yesterday.toDateString()) return 'Yesterday';
+      return date.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    }
+
+    function renderHistory(): void {
+      const histEl = document.getElementById('history-list') as HTMLDivElement;
+      if (entries.length === 0 && completedTasks.length === 0) {
+        histEl.innerHTML = '<p class="history-empty">No history yet. Start and pause a task to record a session.</p>';
+        return;
+      }
+
+      // Collect all days from entries and completed tasks
+      const allDays = new Set<string>();
+      entries.forEach(e => allDays.add(new Date(e.started_at).toDateString()));
+      completedTasks.forEach(t => { if (t.completed_at) allDays.add(new Date(t.completed_at).toDateString()); });
+      const sortedDays = [...allDays].sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+
+      histEl.innerHTML = '';
+      sortedDays.forEach(day => {
+        const dayEntries = entries.filter(e => new Date(e.started_at).toDateString() === day);
+        const dayCompleted = completedTasks.filter(t => t.completed_at && new Date(t.completed_at).toDateString() === day);
+        const completedIds = new Set(dayCompleted.map(t => t.id));
+        const filteredDayEntries = dayEntries.filter(e => !completedIds.has(e.task_id));
+        const date = new Date(day);
+        const dayTotal = filteredDayEntries.reduce((sum, e) => sum + e.duration_ms, 0);
+
+        const section = document.createElement('div');
+        section.className = 'history-section';
+
+        const header = document.createElement('div');
+        header.className = 'history-header';
+        const dateEl = document.createElement('span');
+        dateEl.className = 'history-date';
+        dateEl.textContent = formatDayLabel(date);
+        const totalEl = document.createElement('span');
+        totalEl.className = 'history-total';
+        if (dayTotal > 0) totalEl.textContent = formatTime(dayTotal);
+        header.append(dateEl, totalEl);
+        section.appendChild(header);
+
+        // Group entries by task_id, sum durations
+        const byTask = new Map<string, { entries: TimeEntry[]; total: number }>();
+        filteredDayEntries.forEach(e => {
+          const key = e.task_id;
+          if (!byTask.has(key)) byTask.set(key, { entries: [], total: 0 });
+          const g = byTask.get(key)!;
+          g.entries.push(e);
+          g.total += e.duration_ms;
+        });
+
+        byTask.forEach(({ entries: taskEntries, total }) => {
+          const first = taskEntries[taskEntries.length - 1]; // earliest (entries are desc)
+          const row = document.createElement('div');
+          row.className = 'history-entry';
+
+          const timeEl = document.createElement('span');
+          timeEl.className = 'entry-time';
+          timeEl.textContent = new Date(first.started_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+
+          const nameEl = document.createElement('span');
+          nameEl.className = 'entry-name';
+          nameEl.textContent = first.tasks?.name ?? '—';
+
+          const durationEl = document.createElement('span');
+          durationEl.className = 'entry-duration';
+          durationEl.textContent = formatTime(total);
+
+          const entryDelBtn = document.createElement('button');
+          entryDelBtn.className = 'btn btn-delete';
+          entryDelBtn.textContent = '✕';
+          entryDelBtn.addEventListener('click', async () => {
+            const ids = taskEntries.map(e => e.id);
+            await supabase.from('time_entries').delete().in('id', ids);
+            entries = entries.filter(e => !ids.includes(e.id));
+            renderHistory();
+          });
+
+          row.append(timeEl, nameEl, durationEl);
+
+          if (first.tasks?.tag) {
+            const tagEl = document.createElement('span');
+            tagEl.className = 'task-tag';
+            tagEl.textContent = first.tasks.tag;
+            durationEl.before(tagEl);
+          }
+
+          row.appendChild(entryDelBtn);
+          section.appendChild(row);
+        });
+
+        dayCompleted.forEach(task => {
+          const row = document.createElement('div');
+          row.className = 'history-entry history-done';
+
+          const timeEl2 = document.createElement('span');
+          timeEl2.className = 'entry-time';
+          timeEl2.textContent = task.completed_at
+            ? new Date(task.completed_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+            : '';
+
+          const checkEl = document.createElement('span');
+          checkEl.className = 'done-check';
+          checkEl.textContent = '✓';
+
+          const nameEl = document.createElement('span');
+          nameEl.className = 'entry-name';
+          nameEl.textContent = task.name;
+
+          const totalEl2 = document.createElement('span');
+          totalEl2.className = 'entry-duration done-total';
+          totalEl2.textContent = formatTime(task.total_time);
+
+          const delBtn = document.createElement('button');
+          delBtn.className = 'btn btn-delete';
+          delBtn.textContent = '✕';
+          delBtn.addEventListener('click', async () => {
+            await deleteTask(task.id);
+            completedTasks = completedTasks.filter(t => t.id !== task.id);
+            renderHistory();
+          });
+
+          row.append(timeEl2, checkEl, nameEl, totalEl2);
+
+          if (task.tag) {
+            const tagEl = document.createElement('span');
+            tagEl.className = 'task-tag';
+            tagEl.textContent = task.tag;
+            totalEl2.before(tagEl);
+          }
+
+          row.appendChild(delBtn);
+          section.appendChild(row);
+        });
+
+        histEl.appendChild(section);
+      });
+    }
+
     // ── Render ─────────────────────────────────────────────────────────────────
 
     const listEl = document.getElementById('task-list') as HTMLUListElement;
-    const tagFiltersEl = document.getElementById('tag-filters') as HTMLDivElement;
+    const tagFiltersEl = document.getElementById(
+      'tag-filters',
+    ) as HTMLDivElement;
 
     function render(): void {
       // --- Filter pills ---
-      const tags = [...new Set(tasks.map(t => t.tag).filter((t): t is string => !!t))];
+      const tags = [
+        ...new Set(tasks.map((t) => t.tag).filter((t): t is string => !!t)),
+      ];
       if (activeTag !== null && !tags.includes(activeTag)) activeTag = null;
 
       if (tags.length > 0) {
@@ -296,13 +607,19 @@ import AppScreen from '../components/AppScreen.astro';
         const allPill = document.createElement('button');
         allPill.className = `tag-pill${activeTag === null ? ' active' : ''}`;
         allPill.textContent = 'All';
-        allPill.addEventListener('click', () => { activeTag = null; render(); });
+        allPill.addEventListener('click', () => {
+          activeTag = null;
+          render();
+        });
         tagFiltersEl.appendChild(allPill);
-        tags.forEach(tag => {
+        tags.forEach((tag) => {
           const pill = document.createElement('button');
           pill.className = `tag-pill${activeTag === tag ? ' active' : ''}`;
           pill.textContent = tag;
-          pill.addEventListener('click', () => { activeTag = tag; render(); });
+          pill.addEventListener('click', () => {
+            activeTag = tag;
+            render();
+          });
           tagFiltersEl.appendChild(pill);
         });
       } else {
@@ -310,13 +627,16 @@ import AppScreen from '../components/AppScreen.astro';
       }
 
       // --- Task list ---
-      const visible = activeTag ? tasks.filter(t => t.tag === activeTag) : tasks;
+      const visible = activeTag
+        ? tasks.filter((t) => t.tag === activeTag)
+        : tasks;
       listEl.innerHTML = '';
       if (visible.length === 0) {
-        listEl.innerHTML = '<li class="empty">No tasks yet. Add one above.</li>';
+        listEl.innerHTML =
+          '<li class="empty">No tasks yet. Add one above.</li>';
         return;
       }
-      visible.forEach(task => {
+      visible.forEach((task) => {
         const li = document.createElement('li');
         li.className = `task-card${task.is_running ? ' running' : ''}`;
         li.dataset['id'] = task.id;
@@ -324,17 +644,17 @@ import AppScreen from '../components/AppScreen.astro';
         const infoEl = document.createElement('div');
         infoEl.className = 'task-info';
 
-        const nameEl = document.createElement('span');
-        nameEl.className = 'task-name';
-        nameEl.textContent = task.name;
-        infoEl.appendChild(nameEl);
-
         if (task.tag) {
           const tagEl = document.createElement('span');
           tagEl.className = 'task-tag';
           tagEl.textContent = task.tag;
           infoEl.appendChild(tagEl);
         }
+
+        const nameEl = document.createElement('span');
+        nameEl.className = 'task-name';
+        nameEl.textContent = task.name;
+        infoEl.appendChild(nameEl);
 
         const clock = document.createElement('span');
         clock.className = 'task-clock';
@@ -347,12 +667,13 @@ import AppScreen from '../components/AppScreen.astro';
           task.is_running ? pauseTask(task.id) : startTask(task.id);
         });
 
-        const delBtn = document.createElement('button');
-        delBtn.className = 'btn btn-delete';
-        delBtn.textContent = '✕';
-        delBtn.addEventListener('click', () => deleteTask(task.id));
+        const doneBtn = document.createElement('button');
+        doneBtn.className = 'btn btn-done';
+        doneBtn.title = 'Mark as done';
+        doneBtn.textContent = '✓';
+        doneBtn.addEventListener('click', () => completeTask(task.id));
 
-        li.append(infoEl, clock, toggleBtn, delBtn);
+        li.append(infoEl, clock, toggleBtn, doneBtn);
         listEl.appendChild(li);
       });
     }
@@ -360,13 +681,14 @@ import AppScreen from '../components/AppScreen.astro';
     // ── Tick (local display only, no DB writes) ────────────────────────────────
 
     setInterval(() => {
-      if (!tasks.some(t => t.is_running)) return;
-      listEl.querySelectorAll<HTMLLIElement>('.task-card').forEach(card => {
+      if (!tasks.some((t) => t.is_running)) return;
+      listEl.querySelectorAll<HTMLLIElement>('.task-card').forEach((card) => {
         const id = card.dataset['id'];
         if (!id) return;
-        const task = tasks.find(t => t.id === id);
+        const task = tasks.find((t) => t.id === id);
         const clockEl = card.querySelector('.task-clock');
-        if (task && clockEl) clockEl.textContent = formatTime(getDisplayTime(task));
+        if (task && clockEl)
+          clockEl.textContent = formatTime(getDisplayTime(task));
       });
     }, 100);
 
@@ -375,32 +697,47 @@ import AppScreen from '../components/AppScreen.astro';
     async function exportPDF(): Promise<void> {
       const { jsPDF } = await import('jspdf');
       const doc = new jsPDF();
-      const date = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
+      const today = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
       const totalMs = tasks.reduce((sum, t) => sum + getDisplayTime(t), 0);
 
+      // Header
       doc.setFontSize(18); doc.setTextColor(40);
       doc.text('jotime Report', 14, 20);
       doc.setFontSize(10); doc.setTextColor(100);
-      doc.text(date, 14, 28);
+      doc.text(today, 14, 28);
       doc.text(`Total: ${formatTime(totalMs)}`, 14, 34);
 
-      const hasTags = tasks.some(t => t.tag);
-      doc.setFontSize(11); doc.setTextColor(40);
-      doc.setFillColor(230, 230, 230);
-      doc.rect(14, 42, 182, 8, 'F');
-      doc.text('Task', 16, 48);
-      if (hasTags) doc.text('Tag', 110, 48);
-      doc.text('Duration', 155, 48);
+      // Column positions: Tag | Task | Date | Duration
+      const colTag  = 16;
+      const colTask = 46;
+      const colDate = 130;
+      const colDur  = 163;
 
+      // Table header
+      doc.setFontSize(10); doc.setTextColor(40);
+      doc.setFillColor(220, 220, 220);
+      doc.rect(14, 42, 182, 7, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.text('Tag',      colTag,  47.5);
+      doc.text('Task',     colTask, 47.5);
+      doc.text('Date',     colDate, 47.5);
+      doc.text('Duration', colDur,  47.5);
+
+      // Rows
+      doc.setFont('helvetica', 'normal');
       let y = 58;
       tasks.forEach((task, i) => {
         if (i % 2 === 0) { doc.setFillColor(248, 248, 248); doc.rect(14, y - 5, 182, 8, 'F'); }
         doc.setTextColor(40); doc.setFontSize(10);
-        doc.text(task.name.slice(0, hasTags ? 45 : 60), 16, y);
-        if (hasTags) doc.text(task.tag?.slice(0, 20) ?? '', 110, y);
-        doc.text(formatTime(getDisplayTime(task)), 155, y);
-        y += 10;
-        if (y > 270) { doc.addPage(); y = 20; }
+        const taskDate = task.created_at
+          ? new Date(task.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+          : '';
+        doc.text((task.tag ?? '').slice(0, 15), colTag,  y);
+        doc.text(task.name.slice(0, 42),         colTask, y);
+        doc.text(taskDate,                        colDate, y);
+        doc.text(formatTime(getDisplayTime(task)), colDur, y);
+        y += 9;
+        if (y > 272) { doc.addPage(); y = 20; }
       });
 
       doc.save(`jotime-report-${Date.now()}.pdf`);
@@ -409,7 +746,7 @@ import AppScreen from '../components/AppScreen.astro';
     // ── App event listeners ────────────────────────────────────────────────────
 
     const taskInput = document.getElementById('task-input') as HTMLInputElement;
-    const addBtn    = document.getElementById('add-btn')    as HTMLButtonElement;
+    const addBtn = document.getElementById('add-btn') as HTMLButtonElement;
 
     function submitAdd(): void {
       addTask(taskInput.value);

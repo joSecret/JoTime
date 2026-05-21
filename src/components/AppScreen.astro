@@ -8,28 +8,47 @@
       <p class="tagline">track what matters</p>
     </header>
 
-    <div class="input-area">
-      <input
-        type="text"
-        id="task-input"
-        class="task-input"
-        placeholder="New task name..."
-        autocomplete="off"
-      />
-      <div class="tag-select" id="tag-select">
-        <button type="button" class="tag-select-trigger" id="tag-select-trigger">
-          <span id="tag-select-label">No tag</span>
-          <span class="tag-select-arrow">▾</span>
-        </button>
-        <div class="tag-select-menu hidden" id="tag-select-menu">
-          <div id="tag-select-options"></div>
-          <button type="button" class="tag-add-btn" id="tag-add-btn">+ New tag</button>
-        </div>
-      </div>
-      <button id="add-btn" class="btn btn-add">Add</button>
+    <div class="view-toggle">
+      <button class="view-btn active" id="view-tasks">Tasks</button>
+      <button class="view-btn" id="view-history">History</button>
     </div>
 
-    <div id="tag-filters" class="tag-filters hidden"></div>
+    <!-- Tasks view -->
+    <div id="tasks-view">
+      <div class="input-area">
+        <input
+          type="text"
+          id="task-input"
+          class="task-input"
+          placeholder="New task name..."
+          autocomplete="off"
+        />
+        <div class="tag-select" id="tag-select">
+          <button type="button" class="tag-select-trigger" id="tag-select-trigger">
+            <span id="tag-select-label">No tag</span>
+            <span class="tag-select-arrow">▾</span>
+          </button>
+          <div class="tag-select-menu hidden" id="tag-select-menu">
+            <div id="tag-select-options"></div>
+            <button type="button" class="tag-add-btn" id="tag-add-btn">+ New tag</button>
+          </div>
+        </div>
+        <button id="add-btn" class="btn btn-add">Add</button>
+      </div>
+
+      <div id="tag-filters" class="tag-filters hidden"></div>
+      <ul id="task-list" class="task-list"></ul>
+
+      <footer class="footer">
+        <button id="clear-btn" class="btn btn-ghost">Clear All</button>
+        <button id="export-btn" class="btn btn-export">Download Report</button>
+      </footer>
+    </div>
+
+    <!-- History view -->
+    <div id="history-view" class="hidden">
+      <div id="history-list"></div>
+    </div>
 
     <div class="modal-overlay hidden" id="tag-modal">
       <div class="modal-box">
@@ -41,11 +60,5 @@
         </div>
       </div>
     </div>
-    <ul id="task-list" class="task-list"></ul>
-
-    <footer class="footer">
-      <button id="clear-btn" class="btn btn-ghost">Clear All</button>
-      <button id="export-btn" class="btn btn-export">Download Report</button>
-    </footer>
   </div>
 </div>
