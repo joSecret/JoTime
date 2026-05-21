@@ -293,18 +293,6 @@ import AppScreen from '../components/AppScreen.astro';
       render();
     }
 
-    async function clearAll(): Promise<void> {
-      if (!tasks.length) return;
-      await supabase
-        .from('tasks')
-        .delete()
-        .in(
-          'id',
-          tasks.map((t) => t.id),
-        );
-      tasks = [];
-      render();
-    }
 
     // ── Tag dropdown ───────────────────────────────────────────────────────────
 
@@ -760,7 +748,6 @@ import AppScreen from '../components/AppScreen.astro';
       if (e.key === 'Enter') submitAdd();
     });
 
-    document.getElementById('clear-btn')!.addEventListener('click', clearAll);
     document.getElementById('export-btn')!.addEventListener('click', exportPDF);
   </script>
 </Layout>
