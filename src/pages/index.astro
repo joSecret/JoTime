@@ -53,7 +53,10 @@ import AppScreen from '../components/AppScreen.astro';
       if (!email) return;
       sendLinkBtn.disabled = true;
       sendLinkBtn.textContent = 'Sending…';
-      const { error } = await supabase.auth.signInWithOtp({ email });
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: { emailRedirectTo: window.location.origin + window.location.pathname },
+      });
       sendLinkBtn.disabled = false;
       sendLinkBtn.textContent = 'Send magic link';
       authMsg.textContent = error ? error.message : 'Check your email for the magic link!';
