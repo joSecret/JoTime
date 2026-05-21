@@ -1,0 +1,281 @@
+:root {
+  --bg-deep: #080d1a;
+  --bg-card: #111827;
+  --bg-card-hover: #1a2335;
+  --bg-input: #0f172a;
+  --accent-active: #00e87a;
+  --accent-active-dim: rgba(0, 232, 122, 0.15);
+  --accent-pause: #374151;
+  --border: #1e2d42;
+  --text-primary: #f9fafb;
+  --text-muted: #6b7280;
+  --danger: #ef4444;
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  font-family: var(--font);
+  -webkit-font-smoothing: antialiased;
+}
+
+.app {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 48px 20px 80px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+/* Header */
+.header {
+  text-align: center;
+}
+
+.logo {
+  font-size: 2.5rem;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  color: var(--text-primary);
+}
+
+.logo span {
+  color: var(--accent-active);
+}
+
+.tagline {
+  margin-top: 4px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* Input area */
+.input-area {
+  display: flex;
+  gap: 10px;
+}
+
+.task-input {
+  flex: 1;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 16px;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.task-input::placeholder {
+  color: var(--text-muted);
+}
+
+.task-input:focus {
+  border-color: var(--accent-active);
+}
+
+/* Buttons */
+.btn {
+  border: none;
+  border-radius: 10px;
+  padding: 12px 20px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.1s;
+  font-family: var(--font);
+}
+
+.btn:active {
+  transform: scale(0.97);
+}
+
+.btn-add {
+  background: var(--accent-active);
+  color: #080d1a;
+  padding: 12px 24px;
+}
+
+.btn-add:hover {
+  opacity: 0.88;
+}
+
+.btn-toggle {
+  background: var(--accent-pause);
+  color: var(--text-muted);
+  padding: 8px 16px;
+  font-size: 0.82rem;
+  min-width: 70px;
+}
+
+.btn-toggle.active {
+  background: var(--accent-active-dim);
+  color: var(--accent-active);
+  border: 1px solid var(--accent-active);
+}
+
+.btn-toggle:hover {
+  opacity: 0.8;
+}
+
+.btn-delete {
+  background: transparent;
+  color: var(--text-muted);
+  padding: 8px 10px;
+  font-size: 0.8rem;
+  border: 1px solid var(--border);
+}
+
+.btn-delete:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+
+.btn-ghost:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.btn-export {
+  background: transparent;
+  color: var(--accent-active);
+  border: 1px solid var(--accent-active);
+}
+
+.btn-export:hover {
+  background: var(--accent-active-dim);
+}
+
+/* Task list */
+.task-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.empty {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  padding: 40px 0;
+}
+
+.task-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.task-card:hover {
+  background: var(--bg-card-hover);
+}
+
+.task-card.running {
+  border-color: rgba(0, 232, 122, 0.4);
+  background: rgba(0, 232, 122, 0.04);
+}
+
+.task-name {
+  flex: 1;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.task-clock {
+  font-size: 1.05rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  min-width: 80px;
+  text-align: right;
+}
+
+.task-card.running .task-clock {
+  color: var(--accent-active);
+  animation: glow 1.4s ease-in-out infinite;
+}
+
+@keyframes glow {
+  0%, 100% { text-shadow: 0 0 6px rgba(0, 232, 122, 0.4); }
+  50% { text-shadow: 0 0 16px rgba(0, 232, 122, 0.85); }
+}
+
+/* Footer */
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* Auth screen */
+.screen {
+  min-height: 100vh;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.auth-card {
+  max-width: 400px;
+  margin: 0 auto;
+  padding: 80px 24px 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 32px;
+}
+
+.auth-form {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.auth-msg {
+  font-size: 0.85rem;
+  text-align: center;
+  min-height: 20px;
+  color: var(--text-muted);
+}
+
+/* Header row (logo + logout) */
+.header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.btn-sm {
+  padding: 6px 14px;
+  font-size: 0.8rem;
+}

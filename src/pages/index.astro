@@ -1,11 +1,339 @@
 ---
-import Welcome from '../components/Welcome.astro';
-import Layout from '../layouts/Layout.astro';
-
-// Welcome to Astro! Wondering what to do next? Check out the Astro documentation at https://docs.astro.build
-// Don't want to use any of this? Delete everything in this file, the `assets`, `components`, and `layouts` directories, and start fresh.
 ---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>jotime</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/app.css" />
+</head>
+<body>
 
-<Layout>
-	<Welcome />
-</Layout>
+  <!-- ── Login screen ──────────────────────────────────────────────────────── -->
+  <div id="login-screen" class="screen">
+    <div class="auth-card">
+      <h1 class="logo">jo<span>time</span></h1>
+      <p class="tagline">track what matters</p>
+      <div class="auth-form">
+        <input type="email" id="email-input" class="task-input" placeholder="your@email.com" autocomplete="email" />
+        <button id="send-link-btn" class="btn btn-add">Send magic link</button>
+        <p id="auth-msg" class="auth-msg"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── App screen ────────────────────────────────────────────────────────── -->
+  <div id="app-screen" class="screen hidden">
+    <div class="app">
+      <header class="header">
+        <div class="header-row">
+          <h1 class="logo">jo<span>time</span></h1>
+          <button id="logout-btn" class="btn btn-ghost btn-sm">Logout</button>
+        </div>
+        <p class="tagline">track what matters</p>
+      </header>
+
+      <div class="input-area">
+        <input
+          type="text"
+          id="task-input"
+          class="task-input"
+          placeholder="New task name..."
+          autocomplete="off"
+        />
+        <button id="add-btn" class="btn btn-add">Add</button>
+      </div>
+
+      <ul id="task-list" class="task-list"></ul>
+
+      <footer class="footer">
+        <button id="clear-btn" class="btn btn-ghost">Clear All</button>
+        <button id="export-btn" class="btn btn-export">Download Report</button>
+      </footer>
+    </div>
+  </div>
+
+  <script>
+    import { createClient } from '@supabase/supabase-js';
+
+    // ── Supabase client ────────────────────────────────────────────────────────
+
+    const supabase = createClient(
+      import.meta.env.PUBLIC_SUPABASE_URL as string,
+      import.meta.env.PUBLIC_SUPABASE_ANON_KEY as string
+    );
+
+    // ── Types ──────────────────────────────────────────────────────────────────
+
+    interface Task {
+      id: string;
+      name: string;
+      total_time: number;
+      is_running: boolean;
+      last_start_time: number | null;
+    }
+
+    // ── Screen switching ───────────────────────────────────────────────────────
+
+    const loginScreen = document.getElementById('login-screen') as HTMLDivElement;
+    const appScreen   = document.getElementById('app-screen')   as HTMLDivElement;
+
+    function showLogin(): void {
+      loginScreen.classList.remove('hidden');
+      appScreen.classList.add('hidden');
+    }
+
+    function showApp(): void {
+      loginScreen.classList.add('hidden');
+      appScreen.classList.remove('hidden');
+    }
+
+    // ── Auth ───────────────────────────────────────────────────────────────────
+
+    const emailInput  = document.getElementById('email-input')  as HTMLInputElement;
+    const sendLinkBtn = document.getElementById('send-link-btn') as HTMLButtonElement;
+    const authMsg     = document.getElementById('auth-msg')      as HTMLParagraphElement;
+
+    sendLinkBtn.addEventListener('click', async () => {
+      const email = emailInput.value.trim();
+      if (!email) return;
+      sendLinkBtn.disabled = true;
+      sendLinkBtn.textContent = 'Sending…';
+      const { error } = await supabase.auth.signInWithOtp({ email });
+      sendLinkBtn.disabled = false;
+      sendLinkBtn.textContent = 'Send magic link';
+      authMsg.textContent = error ? error.message : 'Check your email for the magic link!';
+      authMsg.style.color = error ? 'var(--danger)' : 'var(--accent-active)';
+    });
+
+    emailInput.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key === 'Enter') sendLinkBtn.click();
+    });
+
+    document.getElementById('logout-btn')!.addEventListener('click', async () => {
+      await supabase.auth.signOut();
+    });
+
+    // React to auth changes (login, logout, magic link callback)
+    supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        showApp();
+        loadTasks();
+      } else {
+        tasks = [];
+        render();
+        showLogin();
+      }
+    });
+
+    // ── State ──────────────────────────────────────────────────────────────────
+
+    let tasks: Task[] = [];
+
+    async function loadTasks(): Promise<void> {
+      const { data, error } = await supabase
+        .from('tasks')
+        .select('*')
+        .order('created_at', { ascending: true });
+
+      if (error || !data) return;
+
+      const now = Date.now();
+      const updates: Promise<unknown>[] = [];
+
+      tasks = data.map((t: Task) => {
+        if (t.is_running && t.last_start_time) {
+          const recovered = { ...t, total_time: t.total_time + (now - t.last_start_time), is_running: false, last_start_time: null };
+          updates.push(
+            Promise.resolve(supabase.from('tasks').update({ total_time: recovered.total_time, is_running: false, last_start_time: null }).eq('id', t.id))
+          );
+          return recovered;
+        }
+        return t;
+      });
+
+      await Promise.all(updates);
+      render();
+    }
+
+    // ── Timer engine ───────────────────────────────────────────────────────────
+
+    function getDisplayTime(task: Task): number {
+      if (task.is_running && task.last_start_time) {
+        return task.total_time + (Date.now() - task.last_start_time);
+      }
+      return task.total_time;
+    }
+
+    function formatTime(ms: number): string {
+      const totalSec = Math.floor(ms / 1000);
+      const h = Math.floor(totalSec / 3600);
+      const m = Math.floor((totalSec % 3600) / 60);
+      const s = totalSec % 60;
+      return [h, m, s].map(n => String(n).padStart(2, '0')).join(':');
+    }
+
+    async function startTask(id: string): Promise<void> {
+      const now = Date.now();
+      const running = tasks.find(t => t.is_running && t.id !== id);
+
+      if (running) {
+        const newTotal = running.total_time + (now - (running.last_start_time ?? now));
+        await supabase.from('tasks').update({ total_time: newTotal, is_running: false, last_start_time: null }).eq('id', running.id);
+      }
+      await supabase.from('tasks').update({ is_running: true, last_start_time: now }).eq('id', id);
+
+      tasks = tasks.map(t => {
+        if (t.is_running && t.id !== id) return { ...t, total_time: t.total_time + (now - (t.last_start_time ?? now)), is_running: false, last_start_time: null };
+        if (t.id === id) return { ...t, is_running: true, last_start_time: now };
+        return t;
+      });
+      render();
+    }
+
+    async function pauseTask(id: string): Promise<void> {
+      const now = Date.now();
+      const task = tasks.find(t => t.id === id);
+      if (!task?.is_running) return;
+      const newTotal = task.total_time + (now - (task.last_start_time ?? now));
+      await supabase.from('tasks').update({ total_time: newTotal, is_running: false, last_start_time: null }).eq('id', id);
+      tasks = tasks.map(t => t.id === id ? { ...t, total_time: newTotal, is_running: false, last_start_time: null } : t);
+      render();
+    }
+
+    async function addTask(name: string): Promise<void> {
+      const trimmed = name.trim();
+      if (!trimmed) return;
+      const { data, error } = await supabase
+        .from('tasks')
+        .insert({ name: trimmed, total_time: 0, is_running: false, last_start_time: null })
+        .select()
+        .single();
+      if (!error && data) {
+        tasks = [...tasks, data as Task];
+        render();
+      }
+    }
+
+    async function deleteTask(id: string): Promise<void> {
+      await supabase.from('tasks').delete().eq('id', id);
+      tasks = tasks.filter(t => t.id !== id);
+      render();
+    }
+
+    async function clearAll(): Promise<void> {
+      if (!tasks.length) return;
+      await supabase.from('tasks').delete().in('id', tasks.map(t => t.id));
+      tasks = [];
+      render();
+    }
+
+    // ── Render ─────────────────────────────────────────────────────────────────
+
+    const listEl = document.getElementById('task-list') as HTMLUListElement;
+
+    function render(): void {
+      listEl.innerHTML = '';
+      if (tasks.length === 0) {
+        listEl.innerHTML = '<li class="empty">No tasks yet. Add one above.</li>';
+        return;
+      }
+      tasks.forEach(task => {
+        const li = document.createElement('li');
+        li.className = `task-card${task.is_running ? ' running' : ''}`;
+        li.dataset['id'] = task.id;
+
+        const nameEl = document.createElement('span');
+        nameEl.className = 'task-name';
+        nameEl.textContent = task.name;
+
+        const clock = document.createElement('span');
+        clock.className = 'task-clock';
+        clock.textContent = formatTime(getDisplayTime(task));
+
+        const toggleBtn = document.createElement('button');
+        toggleBtn.className = `btn btn-toggle${task.is_running ? ' active' : ''}`;
+        toggleBtn.textContent = task.is_running ? 'Pause' : 'Start';
+        toggleBtn.addEventListener('click', () => {
+          task.is_running ? pauseTask(task.id) : startTask(task.id);
+        });
+
+        const delBtn = document.createElement('button');
+        delBtn.className = 'btn btn-delete';
+        delBtn.textContent = '✕';
+        delBtn.addEventListener('click', () => deleteTask(task.id));
+
+        li.append(nameEl, clock, toggleBtn, delBtn);
+        listEl.appendChild(li);
+      });
+    }
+
+    // ── Tick (local display only, no DB writes) ────────────────────────────────
+
+    setInterval(() => {
+      if (!tasks.some(t => t.is_running)) return;
+      listEl.querySelectorAll<HTMLLIElement>('.task-card').forEach(card => {
+        const id = card.dataset['id'];
+        if (!id) return;
+        const task = tasks.find(t => t.id === id);
+        const clockEl = card.querySelector('.task-clock');
+        if (task && clockEl) clockEl.textContent = formatTime(getDisplayTime(task));
+      });
+    }, 100);
+
+    // ── PDF Export ─────────────────────────────────────────────────────────────
+
+    async function exportPDF(): Promise<void> {
+      // @ts-ignore — CDN import, no type declarations
+      const { jsPDF } = await import('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+      const doc = new jsPDF();
+      const date = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
+      const totalMs = tasks.reduce((sum, t) => sum + getDisplayTime(t), 0);
+
+      doc.setFontSize(18); doc.setTextColor(40);
+      doc.text('jotime Report', 14, 20);
+      doc.setFontSize(10); doc.setTextColor(100);
+      doc.text(date, 14, 28);
+      doc.text(`Total: ${formatTime(totalMs)}`, 14, 34);
+
+      doc.setFontSize(11); doc.setTextColor(40);
+      doc.setFillColor(230, 230, 230);
+      doc.rect(14, 42, 182, 8, 'F');
+      doc.text('Task', 16, 48);
+      doc.text('Duration', 150, 48);
+
+      let y = 58;
+      tasks.forEach((task, i) => {
+        if (i % 2 === 0) { doc.setFillColor(248, 248, 248); doc.rect(14, y - 5, 182, 8, 'F'); }
+        doc.setTextColor(40); doc.setFontSize(10);
+        doc.text(task.name.slice(0, 60), 16, y);
+        doc.text(formatTime(getDisplayTime(task)), 150, y);
+        y += 10;
+        if (y > 270) { doc.addPage(); y = 20; }
+      });
+
+      doc.save(`jotime-report-${Date.now()}.pdf`);
+    }
+
+    // ── App event listeners ────────────────────────────────────────────────────
+
+    const taskInput = document.getElementById('task-input') as HTMLInputElement;
+    const addBtn    = document.getElementById('add-btn')    as HTMLButtonElement;
+
+    addBtn.addEventListener('click', () => {
+      addTask(taskInput.value);
+      taskInput.value = '';
+      taskInput.focus();
+    });
+
+    taskInput.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key === 'Enter') { addTask(taskInput.value); taskInput.value = ''; }
+    });
+
+    document.getElementById('clear-btn')!.addEventListener('click', clearAll);
+    document.getElementById('export-btn')!.addEventListener('click', exportPDF);
+  </script>
+</body>
+</html>

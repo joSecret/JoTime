@@ -1,46 +1,74 @@
-# Astro Starter Kit: Basics
+# jotime
 
-```sh
-npm create astro@latest -- --template basics
+Minimal time tracker with authentication and cloud persistence.
+
+## What it does
+
+- Login via magic link (email, no password)
+- Add tasks and start/stop timers for each one
+- Only one timer runs at a time — starting another auto-pauses the current one
+- On refresh, elapsed times are correctly recovered from Supabase
+- Export a PDF report with all tasks and their durations
+
+## Stack
+
+- **Astro 6** — SSG, strict TypeScript
+- **Supabase** — auth (OTP magic link) + database (`tasks` table)
+- **jsPDF** — PDF export, loaded from CDN on demand
+
+## Setup
+
+```bash
+npm install
+cp .env.example .env
+# fill in the Supabase URL and anon key in .env
+npm run dev
 ```
 
-> 🧑‍🚀 **Seasoned astronaut?** Delete this file. Have fun!
+### Environment variables
 
-## 🚀 Project Structure
-
-Inside of your Astro project, you'll see the following folders and files:
-
-```text
-/
-├── public/
-│   └── favicon.svg
-├── src
-│   ├── assets
-│   │   └── astro.svg
-│   ├── components
-│   │   └── Welcome.astro
-│   ├── layouts
-│   │   └── Layout.astro
-│   └── pages
-│       └── index.astro
-└── package.json
+```
+PUBLIC_SUPABASE_URL=https://<project>.supabase.co
+PUBLIC_SUPABASE_ANON_KEY=<anon-key>
 ```
 
-To learn more about the folder structure of an Astro project, refer to [our guide on project structure](https://docs.astro.build/en/basics/project-structure/).
+### Supabase schema
 
-## 🧞 Commands
+The `tasks` table must exist in your Supabase project:
 
-All commands are run from the root of the project, from a terminal:
+```sql
+create table tasks (
+  id              uuid primary key default gen_random_uuid(),
+  user_id         uuid references auth.users not null,
+  name            text not null,
+  total_time      bigint not null default 0,  -- milliseconds
+  is_running      boolean not null default false,
+  last_start_time bigint,                     -- Unix timestamp in ms
+  created_at      timestamptz default now()
+);
 
-| Command                   | Action                                           |
-| :------------------------ | :----------------------------------------------- |
-| `npm install`             | Installs dependencies                            |
-| `npm run dev`             | Starts local dev server at `localhost:4321`      |
-| `npm run build`           | Build your production site to `./dist/`          |
-| `npm run preview`         | Preview your build locally, before deploying     |
-| `npm run astro ...`       | Run CLI commands like `astro add`, `astro check` |
-| `npm run astro -- --help` | Get help using the Astro CLI                     |
+-- Row Level Security
+alter table tasks enable row level security;
+create policy "owner only" on tasks
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+```
 
-## 👀 Want to learn more?
+## Commands
 
-Feel free to check [our documentation](https://docs.astro.build) or jump into our [Discord server](https://astro.build/chat).
+```bash
+npm run dev      # dev server at localhost:4321
+npm run build    # production build to ./dist/
+npm run preview  # preview build locally
+```
+
+## Structure
+
+```
+src/
+  pages/index.astro   # all app logic (auth, state, render, export)
+public/
+  app.css             # design system (CSS variables, components)
+```
+
+All logic lives in a single `<script>` in `index.astro` — no UI framework, no external bundler, vanilla DOM with TypeScript.
