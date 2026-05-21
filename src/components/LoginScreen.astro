@@ -1,11 +1,66 @@
-<div id="login-screen" class="screen">
-  <div class="auth-card">
-    <h1 class="logo">jo<span>time</span></h1>
-    <p class="tagline">track what matters</p>
-    <div class="auth-form">
-      <input type="email" id="email-input" class="task-input" placeholder="your@email.com" autocomplete="email" />
-      <button id="send-link-btn" class="btn btn-add">Send magic link</button>
-      <p id="auth-msg" class="auth-msg"></p>
+---
+import Logo from './Logo.astro';
+---
+
+<div id='login-screen' class='screen'>
+  <div class='auth-card'>
+    <Logo />
+    <p class='tagline'>track what matters</p>
+    <div class='auth-form'>
+      <input
+        type='email'
+        id='email-input'
+        class='task-input'
+        placeholder='your@email.com'
+        autocomplete='email'
+      />
+      <button id='send-link-btn' class='btn btn-add'>Send magic link</button>
+      <p id='auth-msg' class='auth-msg'></p>
     </div>
   </div>
 </div>
+
+<script>
+  import { supabase } from '../lib/supabase';
+
+  const emailInput = document.getElementById('email-input') as HTMLInputElement;
+  const sendLinkBtn = document.getElementById(
+    'send-link-btn',
+  ) as HTMLButtonElement;
+  const authMsg = document.getElementById('auth-msg') as HTMLParagraphElement;
+
+  sendLinkBtn.addEventListener('click', async () => {
+    const email = emailInput.value.trim();
+    if (!email) return;
+    sendLinkBtn.disabled = true;
+    sendLinkBtn.textContent = 'Sending…';
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo: window.location.origin + window.location.pathname,
+      },
+    });
+    sendLinkBtn.disabled = false;
+    sendLinkBtn.textContent = 'Send magic link';
+    authMsg.textContent = error
+      ? error.message
+      : 'Check your email for the magic link!';
+    authMsg.style.color = error ? 'var(--danger)' : 'var(--accent-active)';
+  });
+
+  emailInput.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (e.key === 'Enter') sendLinkBtn.click();
+  });
+
+  supabase.auth.onAuthStateChange((_event, session) => {
+    if (session?.user) {
+      document.dispatchEvent(
+        new CustomEvent('jotime:signin', {
+          detail: { userId: session.user.id },
+        }),
+      );
+    } else {
+      document.dispatchEvent(new CustomEvent('jotime:signout'));
+    }
+  });
+</script>
