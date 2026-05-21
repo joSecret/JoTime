@@ -22,6 +22,7 @@ import AppScreen from '../components/AppScreen.astro';
     interface Task {
       id: string;
       name: string;
+      tag: string | null;
       total_time: number;
       is_running: boolean;
       last_start_time: number | null;
@@ -85,6 +86,7 @@ import AppScreen from '../components/AppScreen.astro';
     // ── State ──────────────────────────────────────────────────────────────────
 
     let tasks: Task[] = [];
+    let activeTag: string | null = null;
 
     async function loadTasks(): Promise<void> {
       const { data, error } = await supabase
@@ -157,12 +159,12 @@ import AppScreen from '../components/AppScreen.astro';
       render();
     }
 
-    async function addTask(name: string): Promise<void> {
+    async function addTask(name: string, tag: string | null = null): Promise<void> {
       const trimmed = name.trim();
       if (!trimmed) return;
       const { data, error } = await supabase
         .from('tasks')
-        .insert({ name: trimmed, total_time: 0, is_running: false, last_start_time: null })
+        .insert({ name: trimmed, tag, total_time: 0, is_running: false, last_start_time: null })
         .select()
         .single();
       if (!error && data) {
@@ -187,21 +189,58 @@ import AppScreen from '../components/AppScreen.astro';
     // ── Render ─────────────────────────────────────────────────────────────────
 
     const listEl = document.getElementById('task-list') as HTMLUListElement;
+    const tagFiltersEl = document.getElementById('tag-filters') as HTMLDivElement;
 
     function render(): void {
+      // --- Filter pills ---
+      const tags = [...new Set(tasks.map(t => t.tag).filter((t): t is string => !!t))];
+      if (activeTag !== null && !tags.includes(activeTag)) activeTag = null;
+
+      if (tags.length > 0) {
+        tagFiltersEl.classList.remove('hidden');
+        tagFiltersEl.innerHTML = '';
+        const allPill = document.createElement('button');
+        allPill.className = `tag-pill${activeTag === null ? ' active' : ''}`;
+        allPill.textContent = 'All';
+        allPill.addEventListener('click', () => { activeTag = null; render(); });
+        tagFiltersEl.appendChild(allPill);
+        tags.forEach(tag => {
+          const pill = document.createElement('button');
+          pill.className = `tag-pill${activeTag === tag ? ' active' : ''}`;
+          pill.textContent = tag;
+          pill.addEventListener('click', () => { activeTag = tag; render(); });
+          tagFiltersEl.appendChild(pill);
+        });
+      } else {
+        tagFiltersEl.classList.add('hidden');
+      }
+
+      // --- Task list ---
+      const visible = activeTag ? tasks.filter(t => t.tag === activeTag) : tasks;
       listEl.innerHTML = '';
-      if (tasks.length === 0) {
+      if (visible.length === 0) {
         listEl.innerHTML = '<li class="empty">No tasks yet. Add one above.</li>';
         return;
       }
-      tasks.forEach(task => {
+      visible.forEach(task => {
         const li = document.createElement('li');
         li.className = `task-card${task.is_running ? ' running' : ''}`;
         li.dataset['id'] = task.id;
 
+        const infoEl = document.createElement('div');
+        infoEl.className = 'task-info';
+
         const nameEl = document.createElement('span');
         nameEl.className = 'task-name';
         nameEl.textContent = task.name;
+        infoEl.appendChild(nameEl);
+
+        if (task.tag) {
+          const tagEl = document.createElement('span');
+          tagEl.className = 'task-tag';
+          tagEl.textContent = task.tag;
+          infoEl.appendChild(tagEl);
+        }
 
         const clock = document.createElement('span');
         clock.className = 'task-clock';
@@ -219,7 +258,7 @@ import AppScreen from '../components/AppScreen.astro';
         delBtn.textContent = '✕';
         delBtn.addEventListener('click', () => deleteTask(task.id));
 
-        li.append(nameEl, clock, toggleBtn, delBtn);
+        li.append(infoEl, clock, toggleBtn, delBtn);
         listEl.appendChild(li);
       });
     }
@@ -251,18 +290,21 @@ import AppScreen from '../components/AppScreen.astro';
       doc.text(date, 14, 28);
       doc.text(`Total: ${formatTime(totalMs)}`, 14, 34);
 
+      const hasTags = tasks.some(t => t.tag);
       doc.setFontSize(11); doc.setTextColor(40);
       doc.setFillColor(230, 230, 230);
       doc.rect(14, 42, 182, 8, 'F');
       doc.text('Task', 16, 48);
-      doc.text('Duration', 150, 48);
+      if (hasTags) doc.text('Tag', 110, 48);
+      doc.text('Duration', 155, 48);
 
       let y = 58;
       tasks.forEach((task, i) => {
         if (i % 2 === 0) { doc.setFillColor(248, 248, 248); doc.rect(14, y - 5, 182, 8, 'F'); }
         doc.setTextColor(40); doc.setFontSize(10);
-        doc.text(task.name.slice(0, 60), 16, y);
-        doc.text(formatTime(getDisplayTime(task)), 150, y);
+        doc.text(task.name.slice(0, hasTags ? 45 : 60), 16, y);
+        if (hasTags) doc.text(task.tag?.slice(0, 20) ?? '', 110, y);
+        doc.text(formatTime(getDisplayTime(task)), 155, y);
         y += 10;
         if (y > 270) { doc.addPage(); y = 20; }
       });
@@ -273,16 +315,24 @@ import AppScreen from '../components/AppScreen.astro';
     // ── App event listeners ────────────────────────────────────────────────────
 
     const taskInput = document.getElementById('task-input') as HTMLInputElement;
+    const tagInput  = document.getElementById('tag-input')  as HTMLInputElement;
     const addBtn    = document.getElementById('add-btn')    as HTMLButtonElement;
 
-    addBtn.addEventListener('click', () => {
-      addTask(taskInput.value);
+    function submitAdd(): void {
+      addTask(taskInput.value, tagInput.value.trim() || null);
       taskInput.value = '';
+      tagInput.value = '';
       taskInput.focus();
-    });
+    }
+
+    addBtn.addEventListener('click', submitAdd);
 
     taskInput.addEventListener('keydown', (e: KeyboardEvent) => {
-      if (e.key === 'Enter') { addTask(taskInput.value); taskInput.value = ''; }
+      if (e.key === 'Enter') submitAdd();
+    });
+
+    tagInput.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key === 'Enter') submitAdd();
     });
 
     document.getElementById('clear-btn')!.addEventListener('click', clearAll);
