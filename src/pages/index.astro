@@ -1,59 +1,11 @@
 ---
+import Layout from '../layouts/Layout.astro';
+import LoginScreen from '../components/LoginScreen.astro';
+import AppScreen from '../components/AppScreen.astro';
 ---
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>jotime</title>
-  <link rel="icon" href={`${import.meta.env.BASE_URL}favicon.svg`} type="image/svg+xml" />
-  <link rel="stylesheet" href={`${import.meta.env.BASE_URL}app.css`} />
-</head>
-<body>
-
-  <!-- ── Login screen ──────────────────────────────────────────────────────── -->
-  <div id="login-screen" class="screen">
-    <div class="auth-card">
-      <h1 class="logo">jo<span>time</span></h1>
-      <p class="tagline">track what matters</p>
-      <div class="auth-form">
-        <input type="email" id="email-input" class="task-input" placeholder="your@email.com" autocomplete="email" />
-        <button id="send-link-btn" class="btn btn-add">Send magic link</button>
-        <p id="auth-msg" class="auth-msg"></p>
-      </div>
-    </div>
-  </div>
-
-  <!-- ── App screen ────────────────────────────────────────────────────────── -->
-  <div id="app-screen" class="screen hidden">
-    <div class="app">
-      <header class="header">
-        <div class="header-row">
-          <h1 class="logo">jo<span>time</span></h1>
-          <button id="logout-btn" class="btn btn-ghost btn-sm">Logout</button>
-        </div>
-        <p class="tagline">track what matters</p>
-      </header>
-
-      <div class="input-area">
-        <input
-          type="text"
-          id="task-input"
-          class="task-input"
-          placeholder="New task name..."
-          autocomplete="off"
-        />
-        <button id="add-btn" class="btn btn-add">Add</button>
-      </div>
-
-      <ul id="task-list" class="task-list"></ul>
-
-      <footer class="footer">
-        <button id="clear-btn" class="btn btn-ghost">Clear All</button>
-        <button id="export-btn" class="btn btn-export">Download Report</button>
-      </footer>
-    </div>
-  </div>
+<Layout>
+  <LoginScreen />
+  <AppScreen />
 
   <script>
     import { createClient } from '@supabase/supabase-js';
@@ -116,7 +68,6 @@
       await supabase.auth.signOut();
     });
 
-    // React to auth changes (login, logout, magic link callback)
     supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
         showApp();
@@ -286,8 +237,7 @@
     // ── PDF Export ─────────────────────────────────────────────────────────────
 
     async function exportPDF(): Promise<void> {
-      // @ts-ignore — CDN import, no type declarations
-      const { jsPDF } = await import('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+      const { jsPDF } = await import('jspdf');
       const doc = new jsPDF();
       const date = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
       const totalMs = tasks.reduce((sum, t) => sum + getDisplayTime(t), 0);
@@ -335,5 +285,4 @@
     document.getElementById('clear-btn')!.addEventListener('click', clearAll);
     document.getElementById('export-btn')!.addEventListener('click', exportPDF);
   </script>
-</body>
-</html>
+</Layout>

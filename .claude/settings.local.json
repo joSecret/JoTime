@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(npm run *)",
-      "Bash(curl -s http://localhost:4321)"
+      "Bash(curl -s http://localhost:4321)",
+      "Bash(mkdir -p /Users/josecret/Sites/pers/jotime/src/styles)",
+      "Bash(cp /Users/josecret/Sites/pers/jotime/public/app.css /Users/josecret/Sites/pers/jotime/src/styles/app.css)"
     ]
   }
 }
